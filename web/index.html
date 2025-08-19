@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SCADA Mini HMI</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 20px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    #alarms { max-height: 300px; overflow: auto; border: 1px solid #ddd; padding: 8px; }
+    .badge { padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+    .ok { background:#e6ffed; color:#036b26; }
+    .bad { background:#ffefef; color:#8b0000; }
+    .row { display:flex; align-items:center; gap:8px; margin-bottom:6px;}
+    canvas { width: 100%; max-height: 300px; }
+  </style>
+</head>
+<body>
+  <h1>SCADA Mini HMI</h1>
+  <p>Broker WS: <code>ws://localhost:9001</code> | Telemetry: <code>demo/telemetry</code> | Alarms: <code>demo/alarms</code></p>
+  <div class="grid">
+    <div>
+      <h3>Live Telemetry</h3>
+      <div class="row">
+        <span>Status:</span> <span id="status" class="badge bad">Disconnected</span>
+      </div>
+      <canvas id="chart"></canvas>
+      <div id="last"></div>
+    </div>
+    <div>
+      <h3>Alarms</h3>
+      <div id="alarms"></div>
+    </div>
+  </div>
+
+  <!-- MQTT over WebSocket -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const lastEl = document.getElementById('last');
+    const alarmsEl = document.getElementById('alarms');
+
+    const labels = [];
+    const tempData = [];
+    const powerData = [];
+
+    const ctx = document.getElementById('chart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Temp (°C)', data: tempData, yAxisID: 'y1' },
+          { label: 'Power (W)', data: powerData, yAxisID: 'y2' }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        interaction: { mode: 'nearest', intersect: false },
+        scales: {
+          y1: { type: 'linear', position: 'left' },
+          y2: { type: 'linear', position: 'right' }
+        }
+      }
+    });
+
+    function setStatus(ok) {
+      statusEl.textContent = ok ? 'Connected' : 'Disconnected';
+      statusEl.className = 'badge ' + (ok ? 'ok' : 'bad');
+    }
+
+    // Connect to WS MQTT
+    const client = mqtt.connect('ws://localhost:9001');
+
+    client.on('connect', () => {
+      setStatus(true);
+      client.subscribe('demo/telemetry');
+      client.subscribe('demo/alarms');
+    });
+
+    client.on('reconnect', () => setStatus(false));
+    client.on('close', () => setStatus(false));
+    client.on('offline', () => setStatus(false));
+    client.on('error', () => setStatus(false));
+
+    client.on('message', (topic, message) => {
+      try {
+        const obj = JSON.parse(message.toString());
+        if (topic === 'demo/telemetry') {
+          const ts = obj.ts || new Date().toISOString();
+          const quality = obj.quality || 'unknown';
+          const v = obj.values || {};
+          const temp = v.temp_c;
+          const power = v.power_w;
+
+          lastEl.innerHTML = `<div>ts: <code>${ts}</code> | quality: <b>${quality}</b></div>`;
+
+          labels.push(new Date(ts).toLocaleTimeString());
+          if (labels.length > 60) { labels.shift(); }
+
+          if (typeof temp === 'number') {
+            tempData.push(temp);
+          } else {
+            tempData.push(null);
+          }
+          if (tempData.length > 60) { tempData.shift(); }
+
+          if (typeof power === 'number') {
+            powerData.push(power);
+          } else {
+            powerData.push(null);
+          }
+          if (powerData.length > 60) { powerData.shift(); }
+
+          chart.update();
+        } else if (topic === 'demo/alarms') {
+          const line = document.createElement('div');
+          line.textContent = `[${obj.ts}] ${obj.type} -> ${obj.state}`;
+          alarmsEl.prepend(line);
+        }
+      } catch (e) {
+        console.error('parse error', e);
+      }
+    });
+  </script>
+</body>
+</html>
