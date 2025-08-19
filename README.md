@@ -6,6 +6,11 @@ This demo includes:
 - MQTT publish via **paho-mqtt**.
 - A simple **web HMI** (HTML/JS) showing live chart and alarm list using **mqtt.js** and **Chart.js** over **WebSockets** (Mosquitto).
 
+
+## Demo View
+
+![Uygulama Ekran Görüntüsü](img.png)
+
 ## Quick Start
 
 ### 0) Requirements
